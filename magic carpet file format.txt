@@ -1,0 +1,164 @@
+------------- Magic Carpet File Format --------------
+
+Most files are compressed with RNC. Download the utilities here: http://www.yoda.arachsys.com/dk/utils.html (or build your own) to de-compress them.
+
+Level .INF Files:
+Header:
+
+----------------------------------------------
+//levels/lev00000.inf
+//map contents list
+//
+class              model                amount
+----------------------------------------------
+Scenery            Tree               = 419
+Scenery            Standing stone     = 12
+Scenery            Dolmen             = 1
+Player             Flyer1             = 1
+Creature           Vulture            = 9
+Creature           Worm               = 7
+Creature           Skeleton           = 4
+Creature           Builder            = 1
+Creature           Townie             = 35
+Creature           Trader             = 9
+Effect             Black smoke        = 8
+Effect             path               = 11
+Effect             Mana ball          = 11
+Effect                                = 10
+Switch             Hidden inside      = 4
+Spell              Fireball           = 1
+Spell              Possession         = 1
+Spell              castle             = 1
+----------------------------------------------
+
+
+Notes:
+Line 2 defines the current file name. 
+The header describes the count of each entity class, the model/type it is and the amount in this level.
+
+Main:
+This list describes each Entity. The Class and Model is defined. The place in the file must reference the map file somehow since there is no index or X/Y coordinates defined in the INF.
+
+
+--Level .DAT Files--
+Header:
+00 - 2E (first 46 bytes)
+Taking information from GAM000088.DAT, this probably refers to map generation parameters.
+Seed
+Off
+Raise
+Gnarl
+River
+Sourc
+SnLin
+SnFlt
+BhLin
+BhFlt
+RkSte
+
+The file doesnt appear to have any heightmap so it is assumed that this header fills a seeded map generation to generate the heitmap.
+
+
+Offset 2E - 441: 
+Empty space?
+
+Offset 441+:
+Entities
+
+Towards the End:
+Repeating blocks of 1s and 0s
+
+Main:
+
+Entity Def:
+00 0A - entity type
+00 27 - entity sub type
+00 7F - XPos
+00 29 - YPos
+00 01 - Dis Id (Distance ID?)
+00 00 - SwiSz (Switch Size?)
+00 01 - SwiId (Switch Id?)
+00 00 - Paren (Parent) 
+00 00 - Child (Child)
+
+
+Entity Types:
+00 00 : 0 ?
+00 01 : N/A
+00 02 : Scenery
+00 03 : Player Spawn
+00 04 : N/A
+00 05 : Creatures
+00 06 : N/A
+00 07 : N/A
+00 08 : N/A
+00 09 : N/A
+00 0A : Effects
+00 0B : Switches
+00 0C : Spells
+00 0D : N/A
+00 0E : N/A
+00 0F : N/A 
+
+Entity Sub-Types - Scenery
+00 : Tree
+01 : Standing Stone
+02 : Dolmen
+
+Entity Sub-Type - Player Spawn
+04 : Flyer1
+05 : Flyer2 
+
+Entity Sub-Types - Creatures
+00 : 
+01 : Vulture
+02 : Worm
+03 : Bee
+04 : 
+05 :
+06 :
+07 :
+08 :
+09 :
+0A :
+0B : 
+0C : Builder
+0D : Townie
+0E : Trader
+0F :
+
+Entity Sub-Types - Effect
+00 :
+0E :
+1D :
+22 : Teleport
+27 : 
+2D : Unnamed in INF Files
+ 
+
+Entity Sub-Type - Switch
+00 : ? 
+01 : ?
+10 : ?
+
+Entity Sub-Type - Spell
+00 :
+01 : Heal
+02 : Speed Up
+03 :
+04 :
+05 :
+06 :
+07 :
+08 :
+09 :
+0A :
+0B :
+0C :
+0D :
+0E :
+0F :
+
+
+
+
