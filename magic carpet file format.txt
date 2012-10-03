@@ -210,7 +210,7 @@ Entity Sub-Type - Spell
 05 : Beyond Sight
 06 : Earthquake
 07 : Meteor
-08 : 
+08 : Volcano
 09 : Crater
 0A : Teleport
 0B : Rubber Band
@@ -224,7 +224,7 @@ Entity Sub-Type - Spell
 13 : Mana Magnet
 14 : Fire Wall
 15 : Reverse Speed
-16 :
+16 : Smart Bomb
 17 : Mini Fireball
 
 
@@ -232,5 +232,6 @@ Notes:
 * Invisible is spelled incorrectly in the INF files
 * Griffin is spelled as Griffon in the INF files
 * Duel is written as Rubber Band
+* Armageddon is written as Smart Bomb
 
 
