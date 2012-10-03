@@ -107,6 +107,10 @@ Entity Sub-Types - Scenery
 03 : Bad Stone
 
 Entity Sub-Type - Player Spawn
+00 : ?
+01 : ?
+02 : ?
+03 : ?
 04 : Flyer1
 05 : Flyer2 
 06 : Flyer3
@@ -117,19 +121,19 @@ Entity Sub-Types - Creatures
 01 : Vulture
 02 : Bee
 03 : Worm
-04 : 
-05 :
-06 :
-07 :
+04 : Archer
+05 : Crab
+06 : Kraken
+07 : Troll
 08 : Griffon
-09 :
+09 : Skeleton
 0A : Emu
-0B : 
+0B : Genie
 0C : Builder
 0D : Townie
 0E : Trader
 0F :
-10 :
+10 : Wyvern
 
 Genie/Wyvern = 0B or 10
 
@@ -145,17 +149,17 @@ Entity Sub-Types - Effect
 08 :
 09 :
 0A :
-0B :
+0B : Crater
 0C :
 0D :
-0E :
+0E : Black smoke
 0F :
 10 :
-11 :
+11 : Meteor
 12 :
 13 :
 14 :
-15 :
+15 : Steal Mana
 16 :
 17 :
 18 :
@@ -163,15 +167,31 @@ Entity Sub-Types - Effect
 1A :
 1B :
 1C :
-1D :
+1D : path
 1E :
 1F :
 20 :
 21 :
 22 : Teleport
+23 :
+24 :
+25 :
+26 :
 27 : Mana Ball
+28 :
+29 :
+2A :
+2B :
+2C :
 2D : Unnamed in INF Files
- 
+2E :
+2F :
+30 :
+31 :
+32 : Ridge Node
+33 :
+34 : Crab Egg
+
 
 Entity Sub-Type - Switch
 00 : Hidden Inside 
