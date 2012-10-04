@@ -90,7 +90,7 @@ Entity Types:
 00 04 : N/A
 00 05 : Creatures
 00 06 : N/A
-00 07 : N/A
+00 07 : Weather
 00 08 : N/A
 00 09 : N/A
 00 0A : Effects
@@ -115,6 +115,14 @@ Entity Sub-Type - Player Spawn
 05 : Flyer2 
 06 : Flyer3
 07 : Flyer4
+08 : Flyer5
+09 : Flyer6
+0A : Flyer7
+0B : Flyer8
+0C :
+0D :
+0E :
+0F :
 
 Entity Sub-Types - Creatures
 00 : Dragon
@@ -132,21 +140,28 @@ Entity Sub-Types - Creatures
 0C : Builder
 0D : Townie
 0E : Trader
-0F :
+0F : ??? - Unused
 10 : Wyvern
 
-Entity Sub-Types - Effect
+Entity Sub-Types - Weather
 00 :
 01 :
 02 :
 03 :
+04 : Wind
+
+Entity Sub-Types - Effect
+00 :
+01 : Big explosion
+02 :
+03 :
 04 :
-05 :
-06 :
+05 : splash
+06 : Fire
 07 :
-08 :
+08 : Mini Volcano
 09 : Volcano
-0A :
+0A : Mini crater
 0B : Crater
 0C :
 0D : White smoke
@@ -159,9 +174,9 @@ Entity Sub-Types - Effect
 14 :
 15 : Steal Mana
 16 :
-17 :
-18 :
-19 :
+17 : Lightning
+18 : Rain of Fire
+19 : not listed in INF? another steal mana?
 1A :
 1B :
 1C : wall
@@ -185,7 +200,7 @@ Entity Sub-Types - Effect
 2E :
 2F :
 30 :
-31 :
+31 : Unnamed in INF Files
 32 : Ridge Node
 33 :
 34 : Crab Egg
@@ -208,16 +223,21 @@ Entity Sub-Type - Switch
 0D : Dragon
 0E : Troll
 0F :
-10 : ?
+10 : None
 11 :
-12 :
+12 : Crab
 13 : Kraken
 14 :
 15 :
 16 :
 17 :
 18 : Genie
-
+19 :
+1A :
+1B :
+1C :
+1D :
+1E : Creature all
 
 Entity Sub-Type - Spell
 00 : Fireball
@@ -251,5 +271,6 @@ Notes:
 * Griffin is spelled as Griffon in the INF files
 * Duel is written as Rubber Band
 * Armageddon is written as Smart Bomb
-
+* Level 43 INF header incorrectly describes level 48
+* Weather seems to only appear in level 51/63
 
