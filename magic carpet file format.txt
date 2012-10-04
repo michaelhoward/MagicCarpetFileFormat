@@ -41,6 +41,8 @@ This list describes each Entity. The Class and Model is defined. The place in th
 
 
 --Level .DAT Files--
+Each file is exactly 38,812 bytes in size (0x979C). I am assuming this means there are specific areas allocated to certain data.
+
 Header:
 00 - 2E (first 46 bytes)
 Taking information from GAM000088.DAT, this probably refers to map generation parameters.
@@ -62,11 +64,11 @@ The file doesnt appear to have any heightmap so it is assumed that this header f
 Offset 2E - 441: 
 Empty space?
 
-Offset 441+:
-Entities
+Entity Data (Offset 441+):
+(See Entity Def)
 
-Towards the End:
-Repeating blocks of 1s and 0s
+Towards the End (Offset 904D+):
+Repeating blocks of mostly 1s and 0s. Some numbers added to the repeating block.
 
 Main:
 
@@ -272,5 +274,5 @@ Notes:
 * Duel is written as Rubber Band
 * Armageddon is written as Smart Bomb
 * Level 43 INF header incorrectly describes level 48
-* Weather seems to only appear in level 51/63
+* Weather seems to only appear in level 51/63. It doesnt seem to actually affect gameplay.
 
