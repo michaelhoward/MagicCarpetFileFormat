@@ -1,8 +1,24 @@
-------------- Magic Carpet File Format --------------
+------------- Magic Carpet File Formats--------------
 
 Most files are compressed with RNC. Download the utilities here: http://www.yoda.arachsys.com/dk/utils.html (or build your own) to de-compress them.
 
-Level .INF Files:
+Table of Contents:
+[1..] Levels
+[1.1] Individual Level .INF Files
+[1.2] Individual Level .DAT Files
+[1.3] LEVELS.DAT file
+[1.4] LEVELS.TAB file
+[1.5] LEVELSDD.DAT file (Hidden Worlds)
+[1.6] LEVELSDD.TAB file (Hidden Worlds)
+
+
+-----------------------------------------------------
+
+[1..] Levels
+
+
+[1.1] Individual Level .INF Files
+These files are RNC compressed.
 Header:
 
 ----------------------------------------------
@@ -40,8 +56,9 @@ Main:
 This list describes each Entity. The Class and Model is defined. The place in the file must reference the map file somehow since there is no index or X/Y coordinates defined in the INF.
 
 
---Level .DAT Files--
-Each file is exactly 38,812 bytes in size (0x979C). I am assuming this means there are specific areas allocated to certain data.
+[1.2] Individual Level .DAT Files
+These files are RNC compressed.
+Each uncompressed file is exactly 38,812 bytes in size (0x979C). I am assuming this means there are specific areas allocated to certain data.
 
 Header:
 00 - 2E (first 46 bytes)
@@ -142,14 +159,14 @@ Entity Sub-Types - Creatures
 0C : Builder
 0D : Townie
 0E : Trader
-0F : ??? - Unused
+0F : ??? - Ape?
 10 : Wyvern
 
 Entity Sub-Types - Weather
-00 :
-01 :
-02 :
-03 :
+00 : N/A
+01 : N/A
+02 : N/A
+03 : N/A
 04 : Wind
 
 Entity Sub-Types - Effect
@@ -275,4 +292,20 @@ Notes:
 * Armageddon is written as Smart Bomb
 * Level 43 INF header incorrectly describes level 48
 * Weather seems to only appear in level 51/63. It doesnt seem to actually affect gameplay.
+
+
+
+[1.3] LEVELS.DAT file
+This file is a concatenated version of each RNC compressed level .dat file
+This file is copied off the CD onto C:\CARPET.CD for local access. The file is what the engine uses to load level data.
+
+
+[1.4] LEVELS.TAB file
+Function unknown - maybe recording offset to each DAT file inside LEVELS.DAT, however seems to be mostly repeating 0x742E0300.
+
+
+
+
+
+
 
