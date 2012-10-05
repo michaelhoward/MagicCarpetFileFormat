@@ -14,6 +14,7 @@ Table of Contents:
 [1.6] LEVELSDD.DAT file (Hidden Worlds)
 [1.7] LEVELSDD.TAB file (Hidden Worlds)
 
+[2..] Misc
 
 -----------------------------------------------------
 
@@ -79,7 +80,6 @@ BhFlt
 RkSte
 
 The file doesnt appear to have any heightmap so it is assumed that this header fills a seeded map generation to generate the heitmap.
-
 
 Offset 2E - 441: 
 Empty space?
@@ -326,5 +326,40 @@ This file hints at the following features not implemented in game:
 * Power Ups. Does not appear in the game. Full list of power ups: Speed Up, pulse, shield, floater, armour and rain proofing.
 * objectives. The full list of objectives: Gain Mana, Kill Creature, Kill City, Kill Player.
 * An interestingly named function 'robs_bollocks' in assembly.
+
+
+
+[2..] Misc
+In the CARPET.EXE there is a section where some instructions are encoded. One interesting string is: 'Magic Carpet comes to you from Bullfrog Productions Ltd. And will be released on the 15th November 1994'. This seems quite different to the actual release date of May 6th 1994. Later on, there is a 'Version number Beta v8.0' and 'Version date Oct 20 1994 11:49:09'
+
+Also, there is the strings for command line parameters:
+digijoy
+anojoy
+anojoy4
+vfx
+help
+debug
+network
+custom
+setsound
+demo
+detail
+cheat
+name
+level
+movie
+roll
+time
+password
+players
+session
+
+Some of these are documented in the manual e.g. vfx, network. Level is known to set the starting level to a specific level number. Others don't seem to have an effect.
+
+If you review the MAIN.EXE in terms of version/date, it shows:
+'Version number Alpha v6.1' and 'Version date Oct 6 1994 22:35:18'. Im not sure why they included two versions of the game on the CD. If you copy this file to the base directory and execute it, it runs (with a message indicating it is an alpha version).
+Alpha Differences:
+* Villagers are not purple on the mini map, they show up as black like monsters.
+
 
 
