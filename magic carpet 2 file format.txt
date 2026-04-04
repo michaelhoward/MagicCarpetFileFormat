@@ -1,0 +1,1327 @@
+Magic Carpet 2: The Netherworlds - File Format Specification
+=============================================================
+Bullfrog Productions, 1995
+Reverse engineered by Michael Howard, 2025-2026
+Based on comparison with Magic Carpet 1 format, binary analysis,
+gameplay verification across campaign levels 1-10, cross-referenced
+with TCRF (The Cutting Room Floor) reverse engineering notes, and
+structural analysis of the remc2 decompiled source code
+(github.com/thobbsinteractive/magic-carpet-2-hd, originally
+reverse-engineered from x86 assembly by Tomas Vesely/turican0).
+
+
+Overview
+--------
+Magic Carpet 2 uses a similar architecture to MC1: RNC-compressed binary level
+files stored inside a container, with procedurally generated terrain from seed
+parameters and a fixed-size entity table. However, the format has significant
+changes:
+
+  - Entity records are 20 bytes BIG-ENDIAN (vs MC1's 18 bytes little-endian)
+  - Standard levels decompress to 26,116 bytes (0x6604) (vs MC1's 38,812 bytes)
+  - Header: 23 bytes + 46 bytes terrain params + 1022 bytes padding
+  - Entity table has 1,200 slots (vs MC1's 2,095)
+  - Footer: wizard configs (880) + stage checkpoints (56) + stage vars (88)
+  - New entity classes and many more creature/building types
+  - Scripted mission objectives (fly-to, trigger, kill sequences) - MC1 had none
+  - Hidden realm secret exits (byte 0x0C in header)
+  - Environment system (Day=0, Night=1, Cave=2) selecting different asset sets
+  - Underground tunnels in the heightmap with magical doors (Class 14 Model 2)
+    that open/close via proximity switches - a major MC2 addition for cave levels
+  - 26 spells (vs MC1's 24): added ALLIANCE and CAVE IN
+
+
+Compression
+-----------
+Same RNC method 1 as MC1. Compressed files begin with "RNC\x01" (52 4E 43 01).
+The dernc tool from MC1 works on MC2 files.
+
+
+Directory Structure
+-------------------
+/Netherworlds/                     (CD/install root)
+  NETHERW/                         (game directory)
+    CLEVELS/
+      LEVELS.TAB                   Offset table (uint32 LE per level)
+      LEVELS.DAT                   All levels concatenated (RNC compressed)
+    CDATA/                         Game assets (textures, sprites)
+    SOUND/                         Audio data
+    SAVE/                          Save game files
+      SLEV2.DAT                    Level save (binary, not text like MC1)
+      SMAP2.DAT                    Map save
+      SVER2.DAT                    Version/state save
+    CONFIG.DAT                     Configuration
+
+NOTE: MC2 save files are BINARY, not text. Unlike MC1's GAM*.DAT files which
+were plain text with labeled headers (GEN_MAP/THING_INIT), MC2 saves cannot
+be used as a Rosetta Stone. All field identification is from binary analysis
+and gameplay verification.
+
+
+LEVELS.TAB - Level Offset Table
+--------------------------------
+Identical format to MC1: array of uint32 little-endian byte offsets into
+LEVELS.DAT. Unused slots repeat the final valid offset.
+
+Total entries: 1000 (4000 bytes)
+Distinct levels: 184
+Standard levels (26,116 bytes): 165
+Extended levels (38,870-39,006 bytes): 18
+Empty level: 1
+
+The first 8 bytes of LEVELS.DAT are the ASCII header "BULLFROG", so
+the first level offset is 0x00000008.
+
+The game's -level N command line argument maps directly to file index N
+(confirmed: -level 8 = index 8, -level 9 = index 9, etc.)
+
+Level index structure:
+  Indices 0-24:    25 campaign levels (all unique)
+  Indices 25-159:  Non-campaign levels (hidden realms, multiplayer, dev levels)
+                   Some indices share offsets (e.g., 25-27, 28-30, 35-38)
+                   suggesting reserved slots for hidden realm destinations
+  Indices 160-199: Mix of standard and extended-format levels
+  Indices 200-999: Unused (all repeat last valid offset)
+
+Hidden realm level confirmed: Index 28 (Cave, STORE_MANA objective,
+contains WHIRLWIND spell jar). Accessed via secret exit from campaign
+level 5 (index 4).
+
+
+LEV*.DAT - Level Data Files (Binary Format)
+=============================================
+
+Standard levels decompress to exactly 26,116 bytes (0x6604).
+Structure confirmed by remc2 Type_Level_2FECE (BasicTerrain.h, #pragma pack 1).
+
+File Layout:
+  Offset      Size      Description
+  0x0000      23        Level Header (version, level ID, environment, players)
+  0x0017      46        Terrain Generation Parameters (12 params, uint16+padding)
+  0x0045      1022      Reserved/padding block (all zeros)
+  0x0443      24,000    Entity Table (1,200 slots x 20 bytes)
+  0x6203      1         Separator byte (next_0x360D1)
+  0x6204      880       Wizard Configuration (8 blocks x 110 bytes)
+  0x6574      56        Stage Checkpoints (8 x 7 bytes)
+  0x65AC      88        Stage Variables (11 x 8 bytes)
+  -------     -----
+  Total:      26,116 bytes (0x6604)
+
+
+Section 1: Level Header
+------------------------
+23 bytes at offset 0x00. Field layout confirmed by remc2 Type_Level_2FECE.
+
+  Offset  Size  Type    Field      Description
+  0x00    2     uint16  Version    Always 2 - format version
+  0x02    2     uint16  LevelID    Level identifier (NOT terrain seed - seed is
+                                   in terrain params at 0x17. Previously
+                                   misidentified as "Seed")
+  0x04    1     uint8   GfxType    Type of level graphics (0, 2, or 4)
+  0x05    1     uint8   Unk05      Unknown (0-250 range)
+  0x06    1     uint8   MapType    Environment type (enum MapType_t):
+                                     0 = Day   (77 levels) - loads *D0-0 assets
+                                     1 = Night (41 levels) - loads *N0-0 assets
+                                     2 = Cave  (47 levels) - loads *C0-0 assets
+                                   Selects entire asset set from DATA folder:
+                                     Sprites: HSPRD/N/C, MSPRD/N/C
+                                     Sky:     SKYD/N/C
+                                     Palette: PALD/N/C
+                                     Tables:  TABLESD/N/C
+                                     Blocks:  BL16D/N/C, BL32D/N/C
+                                   No value 3 exists; *F0-0 (fire) assets are
+                                   a Night sub-variant (BL16F/BL32F).
+  0x07    2     int16   Unk07      Usually 10 (0x0A), sometimes 100 (0x64)
+  0x09    2     int16   Unk09      Unknown int16
+  0x0B    8     int8[8] Players    Player slot flags (8 wizard slots, one per
+                                   possible player). Controls which wizard
+                                   slots are active for this level.
+  0x13    4     uint8[4] Padding   Zeros
+
+Total header: 23 bytes (0x00-0x16).
+
+NOTE: Previous analysis had bytes 0x07-0x0F as individual bytes (NumWiz,
+Secret, etc.). The remc2 source shows 0x07-0x0A are two int16 words, and
+0x0B-0x12 is an 8-byte player slot array. The wizard count is derived from
+the Players array, not stored as a separate byte. The hidden realm secret
+exit flag location needs re-verification against the source layout.
+
+
+Section 1b: Terrain Generation Parameters
+-------------------------------------------
+46 bytes at offset 0x17. Each parameter is stored as uint16 LE followed
+by 2 bytes padding (reading as int32 LE gives identical values since the
+high word is always zero). Exception: River is a true uint32.
+
+Field names confirmed by remc2 BasicTerrain.h (matching MC1's GEN_MAP
+names from GAM save files, plus new "lriver" parameter).
+
+  Index  Offset  Size  Field    Range              Description
+  0      0x17    2+2   Seed     0-62,000           Terrain generation seed
+  1      0x1B    2+2   Offset   0-49,000           Height offset (base elevation)
+  2      0x1F    2+2   Raise    -10,000..10,000    Terrain raise (can be negative)
+  3      0x23    2+2   Gnarl    0-200              Terrain roughness/gnarl
+  4      0x27    4     River    uint32 LE          River parameter (true 32-bit!)
+  5      0x2B    2+2   LRiver   0-80               River length/count (new in MC2)
+  6      0x2F    2+2   Source   0-200              River source count
+  7      0x33    2+2   SnLin    0-200              Snow line threshold
+  8      0x37    2+2   SnFlt    0-50               Snow flat/smoothing
+  9      0x3B    2+2   BhLin    0-100              Beach line threshold
+  10     0x3F    2+2   BhFlt    0-50               Beach flat/smoothing
+  11     0x43    2+2   RkSte    0-100              Rock steepness
+
+NOTE: The "2+2" notation means 2-byte value + 2-byte padding = 4 bytes per
+param. River at index 4 is the only true uint32 (no padding). This explains
+why these appeared to be int32 LE in our original analysis - the padding
+bytes are always zero so the int32 read gives the correct uint16 value.
+
+MC2 adds LRiver (river length?) between River and Source compared to MC1's
+GEN_MAP parameter list. MC1 had 11 params; MC2 has 12.
+
+
+Section 2: Reserved Block
+--------------------------
+Offset 0x0045 - 0x0442 (1,022 bytes). All zeros in every examined level.
+This is the stubk[1022] padding in the Type_Level_2FECE struct, between
+the terrain parameters and the entity table.
+
+
+Section 3: Entity Table (20-byte Big-Endian Records)
+------------------------------------------------------
+Offset 0x0443 - 0x6202
+1,200 fixed slots, each 20 bytes. Empty slots are all zeros.
+(Previous analysis counted 1,199; remc2 source confirms 1,200.)
+
+*** IMPORTANT: MC2 entity records are stored BIG-ENDIAN on disk! ***
+This is a change from MC1 which used little-endian throughout.
+The remc2 source defines the in-memory struct as native LE (x86) and
+handles byte-swapping during level load/save.
+
+Each record is 10 x uint16 big-endian (type_entity_0x30311 in BasicTerrain.h):
+
+  Offset  Size  Field      Description
+  0x00    2     Class      Entity class/type (uint16 BE, "type" in source)
+  0x02    2     Model      Entity model/subtype (int16 BE, "subtype" in source)
+  0x04    2     Xpos       X position on 256x256 map grid (uint16 BE)
+  0x06    2     Ypos       Y position on 256x256 map grid (uint16 BE)
+  0x08    2     DisId      Group/district ID (int16 BE, signed - "must be signed")
+  0x0A    2     Word10     Unnamed in source (uint16 BE, often 0 or 0xFF00)
+                           Possibly switch size/parameter (MC1's SwiSz)
+  0x0C    2     StageTag   Stage/objective tag (int16 BE, "stageTag" in source)
+                           Links entity to mission objective stages. This was
+                           MC1's SwiId (switch target ID) but repurposed for
+                           MC2's scripted mission system. Still functions as
+                           switch/trigger linkage but with stage awareness.
+  0x0E    2     Par1       Context-dependent parameter 1 (uint16 BE):
+                           - Villager Building (Effect 45): Building TYPE
+                             (1=Tent, 23=Rectangular building, 37=Spire)
+                           - Teleport (Effect 34): Destination X coordinate
+                           - Path/Wall/Canyon (Effect 29/28/31): Parent entity link
+                           - Most other entities: unused or parent reference
+  0x10    2     Par2       Context-dependent parameter 2 (uint16 BE):
+                           - Teleport (Effect 34): Destination Y coordinate
+                           - Path/Wall: Child entity link
+                           - Most other entities: unused
+  0x12    2     Par3       Context-dependent parameter 3 (uint16 BE, usually 0)
+
+Field behavior (confirmed by gameplay - mushroom circle trigger chain):
+  - F4 (DisId) and F6 (SwiId) form the switch-trigger linking system,
+    identical to MC1's DisId/SwiId mechanism:
+    * Entities sharing the same DisId belong to the same group
+    * A Switch entity's SwiId links to the DisId of entities it activates
+    * Example: Mushrooms (DisId=17) + Switch (DisId=17, SwiId=18)
+      → activates Teleport portal (DisId=18)
+  - Simple entities: F4-F9 all zero
+  - Grouped entities: F4=N, F6=N (same ID)
+  - Wizard entities: 0xFFFF "none" markers (read as 0x00FF/0xFF00 in BE)
+
+
+Entity Class/Model Reference
+------------------------------
+165 standard levels analyzed. Class numbers match MC1's system.
+Models confirmed by gameplay testing are marked with ✓.
+
+
+8 entity classes are used in level files: 0, 2, 3, 5, 10, 11, 14, 15.
+Classes 1, 4, 6, 7, 8, 9, 12, 13 never appear in any level file but
+exist in the engine's numbering - presumed runtime-only entity types.
+MC1 had the same gaps (classes 0, 1, 4, 6, 8, 9 unused in level files).
+MC2 dropped Class 7 (Weather) and renumbered Class 12 (Spell) to 15.
+MC2 added Class 0 (Conditional Spawn) and Class 14 (Objects).
+
+
+Class  0: Conditional Spawn (6,608 entities across all levels)
+         50 distinct models. Present in 16 of 25 campaign levels.
+         Not present in MC1. Entities that don't exist at level start but
+         materialize when their group's trigger condition is met (objective
+         completed, location reached, switch activated). MC2 needed this
+         because MC1 had no scripted objectives - all entities existed
+         from the start.
+
+         Model numbers mirror Class 5 (Creature) and Class 10 (Effect)
+         numbering - the model indicates WHAT will spawn:
+           C0 Model 19 → spawns Firefly (Class 5 Model 19)
+           C0 Model 39 → spawns Mana ball (Class 10 Model 39)
+           C0 Model 45 → spawns Wizard (Class 10 Model 45)
+           C0 Model 9  → spawns Skeleton (Class 5 Model 9)
+
+         Two behavioral patterns:
+           Model 0: Group connector (F4 ≠ F6). Links source group (F4)
+                    to target group (F6) with F5 as parameter. Chains
+                    trigger groups so defeating one wave triggers the next.
+           All others: Spawn markers (F4 = F6). Positioned at map locations
+                    where the entity will appear. Activated when their
+                    group's switch fires.
+
+         71% have grouped fields (F4=F6), confirming they participate
+         in the switch/trigger system like all other entity classes.
+
+Class  1: Unknown (10 entities total - very rare)
+
+Class  2: Scenery (7,343 entities)                          [matches MC1 Class 2]
+         9 models (0-8).
+         Model  0: Tree (3,953 instances) ✓ [same as MC1]
+         Model  1: Statue ✓ [was Standing stone in MC1]
+         Model  2: Dolmen ✓ [same as MC1]
+         Model  3: Bad Stone ✓ [same as MC1]
+         Model  4: Player Sprite (placeholder)
+         Model  5: Player Sprite
+         Model  6: Mushroom ✓ [new in MC2, confirmed in cave level]
+         Model  7: Barrel [new in MC2]
+         Model  8: Wicker Basket [new in MC2]
+
+Class  3: Player Start / Wizard Spawn (510 entities)        [matches MC1 Class 3]
+         Models 4-11, matching MC1's Flyer1-Flyer8 numbering exactly
+         Model 4 = human player ✓, Models 5-11 = AI wizards
+
+Class  4: Unknown (6 entities total - very rare)
+
+Class  5: Creature (26,410 entities)                        [matches MC1 Class 5]
+         29 distinct models (0-28).
+         MC2 creature roster (confirmed via gameplay ✓ and TCRF cross-reference):
+           Model  0: Dragon ✓
+           Model  1: Goat [was Vulture in MC1]
+           Model  2: Bee ✓
+           Model  3: Worm
+           Model  4: Archer ✓
+           Model  9: Skeleton ✓
+           Model 10: Vissuluth (boss)
+           Model 12: Builder
+           Model 13: Townie
+           Model 14: Trader
+           Model 15: Castle Archer [new in MC2]
+           Model 16: Wyvern
+         New MC2 creatures (Models 17-28):
+           Model 17: Manticore ✓ (1704 instances)
+           Model 18: Sentinel ✓ (678 instances) [was our "Stone Head" estimate,
+                     confirmed by TCRF; models 18/19 were swapped in earlier analysis]
+           Model 19: Firefly ✓ (2538 instances) [corrected from earlier swap]
+           Model 20: Spider ✓ (1982 instances)
+           Model 21: Devil ✓ (2804 instances, "jumping devils")
+           Model 22: Mana Worm
+           Model 23: Moon Dweller
+           Model 24: Troglodyte
+           Model 25: Cymmerian (1738 instances)
+           Model 26: Zombie ✓ (1205 instances)
+           Model 27: Hydra
+           Model 28: Leviathan ✓ (sea creature, swims in water)
+
+Class  6: Unknown (1 entity total)
+
+Class  7: Weather? (1 entity total)                         [MC1 had Weather]
+
+Class 10: Effect (28,395 entities)                          [matches MC1 Class 10]
+         38 distinct models.
+         Confirmed models (same IDs as MC1):
+           Model 11: Crater ✓
+           Model 29: Path (linked waypoints) ✓
+           Model 34: Teleport (in-map) ✓ [confirmed: mushroom→switch→portal]
+           Model 39: Mana ball ✓
+           Model 45: DUAL PURPOSE ✓ (confirmed by TCRF + gameplay):
+                     1) Wizard entity (flying wizard)
+                     2) Villager Building - Paren field determines type:
+                        1=Tent ✓, 23=Rectangular building ✓, 37=Spire ✓
+                        Spires are tall barriers that block flight.
+         New MC2 models:
+           Model 59: Mana Worm ✓ (flying mana entity, spawns in pairs
+                     from switch-triggered locations)
+           Model 80: Group marker / spawn trigger (3033 instances)
+                     Referenced by TRIGGER objectives for kill quests
+           Model 82-85: Various effects/markers (common in cave levels)
+
+Class 11: Switch (2,695 entities)                           [matches MC1 Class 11]
+         28 distinct models. Model 0 dominant (1556)
+         Switches activate when conditions are met (creature death,
+         player proximity, etc.). SwiId field links to target entities.
+         Used extensively by mission objectives - TRIGGER/TASK opcodes
+         reference switches to implement "kill creature" objectives.
+
+Class 14: Objects (3,068 entities)                          [new in MC2, named per TCRF]
+         Model  1: Teleport Portal ✓ (the magical window object you fly
+                   into to warp elsewhere on the map. TCRF calls it "Gate".
+                   Effect Model 34 is the teleport effect/animation,
+                   this is the physical portal object)
+         Model  2: Magical Door ✓ (opens/closes on proximity in tunnels,
+                   triggered by nearby Hidden Inside switches.
+                   Exclusively in Cave levels - 0 instances on Day/Night maps)
+         Model  3: Exit portal ✓ (exactly 1 per level - main/secret exit)
+         Model  4: Rare trigger type
+         Model  5: XP scrolls ✓ (0-117 per level)
+
+Class 15: Spell Pickup (960 entities)                       [MC1 used Class 12]
+         26 models (0-25) = 26 base spells, one jar per spell type.
+         Each spell has 3 upgrade tiers (listed in ETEXT.DAT strings 186-259).
+
+         Model  0: FIREBALL            Model 13: STEAL MANA
+         Model  1: POSSESS             Model 14: DUEL
+         Model  2: CASTLE              Model 15: TREMOR
+         Model  3: SPEED UP            Model 16: CRATER
+         Model  4: MORPH               Model 17: EARTHQUAKE
+         Model  5: HEAL                Model 18: VOLCANO
+         Model  6: SHIELD              Model 19: SUMMON ARMY
+         Model  7: LIGHTNING           Model 20: GRAVITY WELL
+         Model  8: REBOUND             Model 21: WHIRLWIND ✓
+         Model  9: METEOR              Model 22: FOOL'S MANA
+         Model 10: TELEPORT            Model 23: MAGIC MINE
+         Model 11: INVISIBLE           Model 24: ALLIANCE
+         Model 12: BEYOND SIGHT        Model 25: CAVE IN
+
+         WHIRLWIND confirmed found in hidden realm (index 28) accessible
+         via secret exit from campaign level 5 (index 4).
+
+
+Section 4: Wizard Configuration Blocks
+----------------------------------------
+Offset 0x6204 - 0x6573 (880 bytes = 8 x 110 bytes)
+Struct: Type_WizardMapSettings_0x360D2 in BasicTerrain.h (#pragma pack 1)
+
+8 blocks of 110 bytes each, one per possible wizard slot (MC2 supports
+up to 8 wizards per level). Block 0 = player, Blocks 1-7 = AI wizards.
+All wizards start alive; their spawn positions are defined by Class 3
+entities (Model 4 = player, Models 5-11 = AI wizards).
+
+Each 110-byte block structure (from remc2 source):
+  Offset  Size  Type      Field            Description
+  0x00    3     uint8[3]  (padding)        Always zeros
+  0x03    2     int16     Aggression       AI combat eagerness (0-255)
+  0x05    2     uint8[2]  (padding)        Always zeros
+  0x07    2     int16     Reflexes         AI reaction speed (0-255)
+  0x09    2     uint8[2]  (padding)        Always zeros
+  0x0B    2     int16     Perception       AI awareness range (0-255)
+  0x0D    2     uint8[2]  (padding)        Always zeros
+  0x0F    26    uint8[26] StartingSpells   One byte per spell (0-3 = upgrade tier)
+                                           Index 0=FIREBALL, 1=POSSESS, 2=CASTLE,
+                                           3=SPEED UP, 4=MORPH, 5=HEAL, 6=SHIELD,
+                                           7=LIGHTNING, 8=REBOUND, 9=METEOR,
+                                           10=TELEPORT, 11=INVISIBLE, 12=BEYOND SIGHT,
+                                           13=STEAL MANA, 14=DUEL, 15=TREMOR,
+                                           16=CRATER, 17=EARTHQUAKE, 18=VOLCANO,
+                                           19=SUMMON ARMY, 20=GRAVITY WELL,
+                                           21=WHIRLWIND, 22=FOOL'S MANA,
+                                           23=MAGIC MINE, 24=ALLIANCE, 25=CAVE IN
+  0x29    26    uint8[26] UnknownSpells    Unknown spell-related flags (byte_0x360FBx)
+  0x43    26    uint8[26] BlockedSpells    Spells the wizard cannot learn/use
+  0x5D    2     int16     Life             Wizard starting health
+  0x5F    15    uint8[15] (padding)        Zeros to fill 110-byte block
+
+NOTE: Previous analysis had the field order as Aggression/Perception/Reflexes.
+The remc2 source confirms the order is Aggression/Reflexes/Perception (bytes
+3, 7, 11 respectively). Also, these are int16 values with 2-byte padding,
+not single bytes within uint32 groups as previously interpreted. The spell
+loadout starts at offset 0x0F (byte 15), not byte 22 as previously mapped.
+
+AI personality parameters scale with game progression:
+  - Aggression: controls attack frequency and target selection
+  - Reflexes: controls dodge/counter speed
+  - Perception: controls detection range for threats/opportunities
+
+Example spell loadouts:
+  Level 0 Player: no spells (tutorial)
+  Level 4 Player: FIREBALL, POSSESS, SPEED UP, SHIELD, REBOUND, METEOR
+  Level 8 Player: 13 spells including CASTLE, VOLCANO, EARTHQUAKE
+  Level 4 AI 1:   POSSESS only (weak opponent)
+  Level 8 AI 4:   11 spells (strong late-game opponent)
+
+
+Section 5: Stage Checkpoints
+-----------------------------
+Offset 0x6574 - 0x65AB (56 bytes = 8 x 7 bytes)
+Struct: type_str_0x36442 in BasicTerrain.h
+
+8 stage checkpoint entries, one per possible objective stage.
+
+Each 7-byte entry:
+  Offset  Size  Type    Field      Description
+  0x00    1     int8    Index      Checkpoint index
+  0x01    2     int16   Stage      Stage/wave number
+  0x03    4     axis_2d Position   Map coordinates (X, Y as int16 pair)
+
+
+Section 5b: Stage Variables
+----------------------------
+Offset 0x65AC - 0x6603 (88 bytes = 11 x 8 bytes)
+Struct: type_str_0x3647Ac in BasicTerrain.h
+
+11 stage variable entries that control mission objective state.
+
+Each 8-byte entry:
+  Offset  Size  Type     Field     Description
+  0x00    1     int8     Index     Variable index
+  0x01    1     int8     Stage     Associated stage number
+  0x02    2     uaxis_2d Position  Map coordinates
+  0x04    4     union    Data      Pointer or axis_2d (context-dependent)
+
+
+Section 5c: Mission Script (Objective Sequence)
+-------------------------------------------------
+The mission objective system is implemented through the stage checkpoints
+and stage variables above, combined with objective tracking in the runtime
+game state (type_substr_3659C: IsLevelEnd, ObjectiveText, ObjectiveDone,
+plus 8 stage bytes per objective).
+
+MC2's biggest structural change from MC1: scripted mission objectives.
+MC1 levels had a simple "claim all mana" win condition. MC2 levels have
+multi-step mission chains: fly to location, trigger switch, kill enemies,
+defeat wizard, etc.
+
+Objective types (confirmed by remc2 BasicTerrain.h comments AND gameplay):
+
+  0x00  COLLECT_MANA     param = mana threshold ✓
+                         Source: "collect mana"
+                         "Build the strongest castle you can and fill it with mana"
+                         Confirmed: L1 param=15, L3 param=30, L4 param=40,
+                         Hidden realm param=85 (escalating difficulty)
+
+  0x01  KILL_CREATURE2   param = entity slot index ✓
+                         Source: "kill creature2 - must fix entities"
+                         Kill creature(s) linked to referenced entity.
+                         Target is typically a Switch (Class 11) or group anchor
+                         that triggers on creature deaths. Similar to opcode 0x07.
+                         Confirmed: L6 obj1+2 = kill zombies
+
+  0x02  (unnamed)        param = entity slot index ✓
+                         Source: blank (no comment for type 2)
+                         Destroy a building or structure.
+                         Confirmed: L9 "Jark's Loretower" - destroy named structure
+
+  0x03  KILL_PLAYER      param = wizard slot ID ✓
+                         Source: "kill enemy player"
+                         Kill specific AI wizard opponent.
+                         Wizard slots: 1=player, 2+=AI opponents.
+                         Confirmed: L5 params 3,2 = kill wizard 3 then wizard 2
+                         L12 params 2,3,4,5 = kill all 4 AI wizards in sequence
+
+  0x04  (unused)         Source: blank, not observed in any level
+
+  0x05  RELEASE_POINT    param2 = X coord, param3 = Y coord ✓
+                         Source: "release point" (not "fly to" as we originally named)
+                         Navigate to specific map location (0-255 grid).
+                         Confirmed: L1 (115,212), L1 (194,213), L2 (2,152), etc.
+
+  0x06  (unused)         Source: blank, not observed in any level
+
+  0x07  KILL_CREATURE    param = entity slot index ✓
+                         Source: "kill creature - must fix entities"
+                         Complete condition tied to referenced entity.
+                         Common targets:
+                         - Class 11 (Switch): kill creatures that trigger this switch
+                         - Class 5 (Creature group anchor): kill creatures in group
+                         - Class 10 Model 80 (Effect marker): kill associated creatures
+                         The DisId/StageTag fields link the trigger to creature groups.
+                         Confirmed: L1 kill archers, L1 kill fireflies, L3 kill
+                         skeletons/dragons/bees, L4 kill spiders, L6 kill zombies
+
+  0x08  KILL_ALL_PLAYERS No parameters ✓
+                         Source: "kill all players"
+                         Kill all rival wizards on the level.
+                         Confirmed: L6 (index 6), L16, L18
+
+  0x09  DESTROY_BUILDING param = entity slot index ✓
+                         Source: "destroy building - must fix entities"
+                         Destroy all buildings belonging to a wizard.
+                         Param references a Wizard entity (Class 10, Model 45)
+                         to identify WHOSE buildings to destroy.
+                         Confirmed: L2 "Raze them to the ground" (Payahandra's vaults),
+                         L9 "Send them crashing" (Vissuluth's barracks, 6 buildings)
+
+The ff-fill after the last entry is confirmed across all 165 standard levels.
+Entity slot references index into the entity table at 0x0456.
+Slot N = entity at offset 0x0456 + N * 20.
+
+Example mission sequences (confirmed by gameplay):
+
+  Level 1 / index 0 (tutorial, 5+exit objectives):
+    1. FLY_TO (115, 212)        - "Fly towards my beacon"
+    2. FLY_TO (194, 213)        - "Follow the path to the spire"
+    3. TRIGGER slot=103 (Switch) - "These archers guard a spell jar" (kill archers)
+    4. STORE_MANA 15            - "Build the strongest castle" (store 15 mana)
+    5. TRIGGER slot=189 (Switch) - "These fireflies are lethal" (kill fireflies)
+    +  Exit                     - "The city of Jahwl is safe for now"
+
+  Level 2 / index 1 (6 objectives):
+    1. FLY_TO (2, 152)          - "Seek my sign"
+    2. KILL_WIZARD 2            - "Beware! Nyphur...banish him"
+    3. TRIGGER slot=229 (Bee)   - "Kill the giant bees"
+    4. FLY_TO (154, 229)        - "Go to ruins of Payahandra's tower"
+    5. TASK slot=153 (Wizard)   - "Raze them to the ground" (destroy buildings)
+    +  Exit                     - "Make your way to the portal"
+
+  Level 3 / index 2 (6 objectives):
+    1. TRIGGER slot=130 (group 12) - "Slay the skeleton horde"
+    2. TRIGGER slot=141 (group 1)  - "Defeat Nyphur's guardian dragons"
+    3. STORE_MANA 30               - "The entrance only reveals itself..."
+    4. FLY_TO (110, 110)           - "Behold the way!"
+    5. TRIGGER slot=154 (Bee)      - "Despatch this evil!"
+    +  Exit                        - "Take the secret of the shapechangers"
+
+  Level 4 / index 3 (3 objectives):
+    1. STORE_MANA 40            - "You must find the star that fell"
+    2. TRIGGER slot=137 (Spider) - "Attack the spiders"
+    +  Exit                     - "Make your way to the portal"
+
+  Level 5 / index 4 (3 objectives):
+    1. KILL_WIZARD 3            - "Rahn is weaker. Challenge him"
+    2. KILL_WIZARD 2            - "Defend yourself against Nyphur"
+    +  Exit                     - "Taste for victory...they plan their revenge"
+
+  Level 6 / index 5 (5 objectives):
+    1. KILL_TASK slot=433 (Switch) - "Send this creature to the grave" (zombie)
+    2. TRIGGER slot=441 (Zombie)   - "Attracted some unwanted attention" (zombie)
+    3. FLY_TO (196, 1)             - "Look for a hidden sign"
+    4. TRIGGER slot=475 (Effect 80) - "Defend yourself" (kill zombies)
+    +  Exit                        - "Get out of here!"
+
+
+Objective Text (ETEXT.DAT)
+---------------------------
+All objective descriptions are stored as null-terminated strings in
+DATA/ETEXT.DAT (18,494 bytes, 471 total strings). NOT compressed.
+
+Text layout:
+  Strings 0-21:    UI text (menus, spell names, game messages)
+  String 22:       Intro narration (Kafkar's opening monologue)
+  Strings 23-47:   Level briefing texts (25 levels, one per campaign level)
+  Strings 48-158:  Per-objective text (111 strings for 25 campaign levels)
+  String 159:      Spell upgrade template ("Your ability to cast %s has improved")
+  Strings 160-185: 26 base spell names (FIREBALL through CAVE IN)
+  Strings 186-259: Spell upgrade names (3 tiers per spell)
+  Strings 260+:    Additional game text
+
+Campaign objective text is stored sequentially by level:
+  Each level's text block = (primary_count + 1) strings.
+  The +1 is the exit/completion objective text (always the last string).
+  The game computes each level's starting text index by summing all
+  previous levels' (primary_count + 1) values, starting at string 48.
+
+Hidden realm levels use hardcoded/default objective text rather than
+the sequential campaign text system (e.g., STORE_MANA always shows
+"Build the strongest castle you can and fill it with mana").
+
+Localized equivalents: GTEXT.DAT (German), FTEXT.DAT (French),
+ITEXT.DAT (Italian), SPTEXT.DAT (Spanish), SWTEXT.DAT (Swedish)
+
+
+Hidden Realms (Secret Levels)
+------------------------------
+MC2 has secret exits on certain campaign levels that lead to hidden realm
+bonus levels. Only 5 of 25 campaign levels have secret exits (byte 0x0C ≠ 0).
+
+How they work:
+  - A specific in-game activity triggers the secret exit condition
+  - The exit portal (Class 14, Model 3) redirects to the hidden realm
+  - Hidden realms are stored at non-campaign indices (25+) in LEVELS.TAB
+  - Hidden realms typically have simple objectives (STORE_MANA)
+  - They often contain rare spell jars not found in campaign levels
+  - After completing the hidden realm, the campaign resumes normally
+
+Confirmed hidden realms:
+  Campaign level 5 (index 4, Secret=1) → Hidden realm at index 28
+  (Cave environment, STORE_MANA threshold 85, contains WHIRLWIND spell jar).
+
+  Campaign level 11 (index 11, Secret=2) → hidden room in tunnels
+  contains CRATER spell jar. Finding the room triggers the secret exit
+  (likely via Hidden Inside proximity switch). The spell is the reward,
+  not the trigger mechanism.
+
+Shared TAB slot groups (25-27, 28-30, 35-38, etc.) likely reserve multiple
+indices for hidden realm levels.
+
+
+Extended Levels (38,870-39,006 bytes)
+--------------------------------------
+18 levels (indices 160-196) are significantly larger than standard.
+Delta from standard: ~12,842 bytes.
+
+These levels appear to have a different header structure (Version field ≠ 2)
+and may be multiplayer maps, development builds, or expansion content.
+Further analysis needed.
+
+
+DATA Folder Asset Formats
+===========================
+The following formats are used for game assets in the CDATA/ and SOUND/
+directories. All information from remc2 decompiled source code.
+
+
+Sound Effects (SNDS*.DAT / SNDS*.TAB)
+---------------------------------------
+Source: Sound.h, WavIndexes.h, port_sdl_sound.cpp
+
+Sound effects are stored in multiple banks (SNDS0-0.DAT through SNDS13-0.DAT).
+Each bank contains up to 96 WAV sample slots. The TAB file provides offsets
+into the DAT file for each sample.
+
+Sound buffer entry (type_E37A0_sound_buffer2):
+  - 18 bytes: filename/identifier
+  - pointer to sample data
+  - sample size
+
+Per-entity sound state (type_F4FE0, 12+ bytes):
+  Offset  Size  Field
+  0x00    2     playType        Playback type
+  0x02    2     volumePan       Stereo panning
+  0x04    2     volume          Volume level
+  0x06    2     flags           Playback flags
+  0x08    2     word_4          Unknown
+  0x0A    2     playRate        Sample rate
+  0x0C    12    positionFromPlayer  3D position (axis_3d_32, 3x int32)
+
+70 entity sound slots (EntitySounds_F4FE0[70]).
+
+Sound playback types:
+  1 = AlwaysPlaySample
+  2 = IfNotPlayingPlaySample
+  3 = RestartOrIfNotExistingPlaySample
+
+Maximum sound distance: 0x9000000 (world units).
+3D positional audio with distance attenuation and stereo panning.
+
+Named sound effects (69 total, from WavIndexes.h):
+  Index  Name         Description
+  1      Ocean        Ambient ocean/water
+  2      Crickets     Ambient night sounds
+  3      Explode3     Explosion effect
+  4      GainMana     Mana collection
+  5      Fire         Fire crackling
+  6      Ally         Alliance spell
+  7      Caveman      Caveman creature
+  8      DragonRoar   Dragon attack
+  9      FireBall     Fireball spell cast
+  10     Quake        Earthquake spell
+  11     FoolMana     Fool's Mana spell
+  12     Bee1         Bee creature
+  14     Select       UI selection
+  15     FireBall2    Secondary fireball
+  16     Die          Death sound
+  17     Hydra        Hydra creature
+  18     GetSpell     Spell jar pickup
+  19     SpeedUp      Speed Up spell
+  21     PortMake     Portal creation
+  22     PortUse      Portal entry
+  23     Lighting     Lightning spell
+  24     Explode3     Explosion variant
+  25     Heal         Heal spell
+  26     Clang        Metal impact
+  27     Splash2      Water splash
+  28     Rebound      Rebound spell
+  29     CantUse      Cannot cast/use
+  30     MeteorEx     Meteor explosion
+  31     Market       Village market
+  32     Spider       Spider creature
+  33     Arrow1       Archer arrow
+  34     Arrow2       Arrow impact
+  37     Cymerian     Cymmerian creature
+  38     DeepOne      Deep One creature
+  39     Wyvern       Wyvern creature
+  40     ManaShot     Mana projectile
+  41     Switch       Switch activation
+  42     Devil        Devil creature
+  43     FireFly1     Firefly creature
+  44     FireFly2     Firefly variant
+  45     Fire         Fire (duplicate)
+  46     Goat         Goat creature
+  47     DoorC2       Cave door open/close
+  48     MWorm3       Mana Worm creature
+  49     Tornado      Whirlwind spell
+  50     Gloop1       Bubble/liquid 1
+  51     Gloop2       Bubble/liquid 2
+  52     Gloop3       Bubble/liquid 3
+  53     Gloop4       Bubble/liquid 4
+  54     Hit1         Impact sound 1
+  55     Hit2         Impact sound 2
+  56     Hit3         Impact sound 3
+  57     Hit4         Impact sound 4
+  58     MadDog       Mad Dog creature (unused?)
+  59     MdWeller     Moon Dweller creature
+  60     Morph        Metamorph spell
+  61     Success2     Level complete
+  62     Zombie       Zombie creature
+  63     SpellUp      Spell upgrade
+  64     GWell        Gravity Well spell
+  65     Drip1        Cave drip 1
+  66     Drip2        Cave drip 2
+  67     Drip3        Cave drip 3
+  68     Drip4        Cave drip 4
+  69     Drip5        Cave drip 5
+
+Indexes 13, 20, 35, 36 are null/unused slots.
+
+
+Music (MUSIC*.DAT / MUSIC*.TAB - XMI Format)
+----------------------------------------------
+Source: XmiInfo.h, xmi2mid.cpp, port_sdl_sound.cpp
+
+Music is stored as XMI (Extended MIDI) format, the Miles Sound System's
+proprietary MIDI variant. Three music banks with multiple format variants
+(MUSIC0-0, MUSIC1-0, MUSIC2-0, etc.).
+
+XMI features:
+  - Up to 6 tracks per bank
+  - Loop events via MIDI Controller Change messages:
+    CC 116 = FOR Loop Start (value = loop count, 127 = infinite)
+    CC 117 = FOR Loop Next (jump back to matching CC 116)
+  - Variable-length tick timing
+
+XMI Loop Event structure (XmiLoopEvent):
+  uint32  evt_index      Sequential event number in EVNT stream
+  uint32  ticks          Absolute tick time
+  uint32  evnt_offset    Byte offset inside the EVNT chunk
+  uint8   channel        MIDI channel (0-15)
+  uint8   cc             Controller number (116 or 117)
+  uint8   val            Controller value (loop count)
+  int     loop_depth     Nesting depth at time of event
+
+The remc2 source transcodes XMI to standard MIDI at runtime for playback
+via SDL2_mixer. OGG Vorbis music is also supported as an alternative in
+the HD port.
+
+Music is environment-aware: the maptype field selects which music bank
+to use (maptypeMusic_0x235 in game state).
+
+
+FM Synth Banks (DRUM.BNK / INST.BNK)
+--------------------------------------
+Ad Lib / OPL format FM synthesis instrument and drum bank files.
+Used by the AIL (Audio Interface Library / Miles Sound System) driver
+for OPL2/OPL3 FM synthesis playback. These define the instrument patches
+(carrier/modulator waveforms, attack/decay/sustain/release envelopes)
+for the music when played through FM synth hardware.
+
+Not needed for MIDI or digital audio playback - only for FM synth.
+
+
+Sprites (HSPR*.DAT/.TAB, MSPR*.DAT/.TAB)
+-------------------------------------------
+Source: GameBitmap.h, GameBitmapIndexes.h, DatTabIndexes.h
+
+Sprite data uses paired DAT/TAB files. The TAB file contains an index
+of offsets into the DAT file. Sprites use RLE (Run-Length Encoding)
+with transparency.
+
+Three environment variants:
+  HSPRD0-0 / MSPRD0-0  Day sprites
+  HSPRN0-0 / MSPRN0-0  Night sprites
+  HSPRC0-0 / MSPRC0-0  Cave sprites
+  (H = high resolution, M = medium resolution)
+
+DAT/TAB index creation uses bitmap_pos_struct_t for positioning:
+  - bitmap data pointer
+  - X, Y position
+  - width, height
+
+Sprite rendering modes (GameBitmap class):
+  - DrawBitmap: standard opaque
+  - DrawTransparentBitmap: with transparency (zero = transparent)
+  - DrawColourizedBitmap: recolored (for wizard team colors, etc.)
+  - All modes support integer scaling
+
+Named bitmap indexes (from GameBitmapIndexes.h):
+  Index  Name                     Description
+  1      SPELL_TOPTILE_BAR        Spell bar top tile
+  2      SPELL_TOPTILE_BAR_GLOW   Spell bar top tile (highlighted)
+  3      SPELL_TOPTILE            Spell top tile
+  4      SPELL_TOPTILE_GLOW       Spell top tile (highlighted)
+  40     MINI_MAP_PANEL           Minimap panel frame
+  41     HEALTH_PANEL             Health bar panel
+  42     HEALTH_MANA_ICONS        Health/mana indicator icons
+  43     PLAYER_ICON              Player marker icon
+  51     BALLON1_ICON             Balloon/notification icon
+  54     PANEL                    Main UI panel
+  55     HEALTH_PANEL_HIT         Health panel (damage flash)
+  74     INCHAT_PLAYER1           Multiplayer chat indicator
+  85     SPELL_TILE               Spell selection tile
+  86     SPELL_TILE_MINI          Small spell tile
+  87     SPELL_TILE_BAR           Spell bar tile
+  88     EDGE_PANEL               Screen edge panel
+  89     SPELL_ICON_PANEL         Spell icon container
+  90     SPELL_ICON_FRAME         Spell icon frame
+  97     SPELL_FIREBALL_SMALL     Fireball icon (small, 26 frames)
+  123    SPELL_FIREBALL_BIG       Fireball icon (large, 26 frames)
+  149    SPELL_TOP_LEFT_CORNER    Panel corner piece
+  165-170 SPELL_BACKGROUND_NUMBER Spell level number backgrounds (1-6)
+  171    FRAME_CORNER             Dialog frame corner
+  174    MENU_ICON_SAVE           Save game icon
+  175    MENU_ICON_LOAD           Load game icon
+  176    SOUND_ICON               Sound settings icon
+  177    MUSIC_ICON               Music settings icon
+  257-261 SPELL_BUTTON_*          OK/Cancel/Back buttons
+
+
+Texture Maps (TMAPS*.DAT / TMAPS*.TAB)
+-----------------------------------------
+Source: TextureMaps.h, Level.h
+
+Texture maps for terrain rendering. Three environment sets loaded from
+separate files:
+  TMAPS0-0  Day textures
+  TMAPS1-0  Night textures
+  TMAPS2-0  Cave textures
+
+504 texture/sprite slots available (m_LevelSpriteList_F5340[504]).
+600 maximum "big sprites" (BIG_SPRITES_BUFFERx[max_sprites]).
+
+Individual textures are RNC-compressed within the DAT file and decompressed
+on demand (sub_70C60_decompress_tmap). The TAB file provides metadata/indices
+for looking up textures.
+
+Textures support animation via type_animations1 structures (type_E9C08).
+Animated textures cycle through frames for effects like flowing water,
+flickering lava, etc.
+
+Each texture has an associated color palette loaded per environment type
+(LoadTMapColorPalette). Textures can be exported to BMP format for analysis.
+
+
+Terrain Blocks (BLOCK16.DAT / BLOCK32.DAT)
+---------------------------------------------
+Source: Terrain.h, ReadAndDecompress.cpp
+
+Voxel/terrain block data used for the height-mapped 3D terrain rendering.
+Two resolution variants:
+  BLOCK16.DAT  16x16 pixel blocks
+  BLOCK32.DAT  32x32 pixel blocks
+
+Three environment variants:
+  BL16D/BL32D  Day blocks (or just BLOCK16/BLOCK32)
+  BL16N/BL32N  Night blocks
+  BL16C/BL32C  Cave blocks
+  BL16F/BL32F  Fire variant (Night sub-type, used for lava levels)
+
+The HD port adds 128x128 high-resolution blocks.
+
+Runtime terrain is stored in five 256x256 arrays (65,536 entries each):
+  mapTerrainType_10B4E0[65536]   Tile type (water, land, rock, etc.)
+  mapHeightmap_11B4E0[65536]     Height values (uint8, 0-255)
+  mapShading_12B4E0[65536]       Light/shade values
+  mapAngle_13B4E0[65536]         Surface angle/normal
+  mapEntityIndex_15B4E0[65536]   Entity index per tile (int16)
+
+Terrain generation (GenerateLevelMap_43830) uses the 12 seed parameters
+from the level header to procedurally create the heightmap, then applies
+smoothing passes (sub_44EE0_smooth_tiles), river carving, and height
+truncation (sub_44DB0_truncTerrainHeight).
+
+Cave levels use a second heightmap (x_BYTE_14B4E0_second_heightmap)
+for tunnel ceilings.
+
+Building geometry uses a fractal subdivision tree:
+  building_F2CD0x[2800][2] -- size = 2 * (7^4 + 7^3 + 7^2 + 7^1)
+                            = 2 * (2401 + 343 + 49 + 7) = 5,600 bytes
+  77 building parameter entries (type_D93C0_bldgprmbuffer):
+    uint16  word_0   Building type/identifier
+    uint8   byte_2   Parameter 1
+    uint8   byte_3   Parameter 2
+  Secondary parameters: str_D94F0_bldgprmbuffer[3][5] (15 bytes)
+
+Terrain tile type checks:
+  sub_104D0_terrain_tile_is_water: returns true for water tiles
+  sub_10590_terrain_tile_type: returns terrain classification
+
+
+Sky Textures (SKY*.DAT)
+-------------------------
+Source: ReadAndDecompress.cpp
+
+Sky/horizon textures rendered as the background dome.
+  SKYD0-0.DAT  Day sky
+  SKYN0-0.DAT  Night sky
+
+Cave levels have no sky (enclosed environment).
+The HD port supports 1024-pixel sky textures.
+
+
+Color/Shading Tables (TABLES*.DAT)
+-------------------------------------
+Source: ReadAndDecompress.cpp
+
+Lookup tables for color ramps, shading, and distance fog.
+Three environment variants:
+  TABLESD.DAT  Day color tables
+  TABLESN.DAT  Night color tables
+  TABLESC.DAT  Cave color tables
+
+These tables contain pre-computed color indices for different lighting
+levels and distances. Key color indices change per environment to match
+the palette.
+
+
+Color Palettes (PAL*.DAT, *.PAL)
+-----------------------------------
+Source: TextureMaps.h, ReadAndDecompress.cpp
+
+256-entry RGB palette (TColor struct: 3 bytes per entry = 768 bytes).
+Loaded per environment type:
+  PALD0-0.DAT  Day palette
+  PALN0-0.DAT  Night palette
+  PALC0-0.DAT  Cave palette
+
+Additional palettes in DATA folder:
+  BOOK.PAL      Spell book screen
+  SMALTIT.PAL   Small title screen
+  SMATITLE.PAL  Title screen
+
+The palette pointer (m_pColorPalette) is global and changes when the
+environment type changes.
+
+
+Font Data (FONT0-2.DAT / FONT0-2.TAB)
+----------------------------------------
+Source: DatTabIndexes.h
+
+Three font sizes loaded via the standard DAT/TAB index system:
+  FONT0  Small font
+  FONT1  Medium font
+  FONT2  Large font
+
+Same RLE bitmap format as sprites. Each character is a bitmap entry
+in the DAT file, indexed by the TAB file.
+
+The HD port adds bitmap fonts (8x8, 16x16) and TTF (UbuntuMono) for
+higher resolution text.
+
+
+Localized Text (ETEXT.DAT, FTEXT.DAT, etc.)
+----------------------------------------------
+Source: LangTextIndexes.h
+
+Plain text files containing null-terminated strings indexed by number.
+NOT RNC-compressed. 471 total strings in ETEXT.DAT (18,494 bytes).
+
+Language files:
+  ETEXT.DAT   English
+  FTEXT.DAT   French
+  GTEXT.DAT   German
+  ITEXT.DAT   Italian
+  SPTEXT.DAT  Spanish
+  SWTEXT.DAT  Swedish
+
+Named text indexes (from LangTextIndexes.h):
+  Index  Constant                          Description
+  2      YOU_ARE_HERE                      Map location indicator
+  40     SPELL_RECHARGE_AND_SHOTS          Spell recharge info
+  41     NOT_ENOUGH_MANA_TO_CAST           Insufficient mana message
+  42     SELECTED_SPELL_LEVEL              Current spell level display
+  69     SPELL_EXPERIENCE_POINTS           XP notification
+  70     NOT_ENOUGH_CASTLED_MANA_TO_USE    Castle mana requirement
+  71     ACHIEVED_SPELL_LEVEL              Spell level up notification
+  283    HAS_BEEN_BANISHED                 Wizard defeat message
+  324    THIS_IS_YOUR_LIFE                 End-of-level stats header
+  353    NUMBER_OF_TIMES_YOU_HAVE_KILLED   Kill count stat
+
+Only 10 of the ~471 strings have been identified by name so far.
+
+
+Save File Formats (SAVE/ directory)
+-------------------------------------
+Source: Level.h, LevelStructs.h
+
+MC2 save files are BINARY (unlike MC1's text-based GAM files).
+Three save file types:
+
+  SLEV*.DAT  Level state save
+             Contains the full runtime game state (type_D41A0_BYTESTR_0,
+             224,791 bytes). Includes entity states, player data, terrain
+             modifications, objective progress, and all game settings.
+             The level data portion (Type_Level_2FECE) is embedded within
+             this structure at offset 0x2FECE.
+
+  SMAP*.DAT  Terrain/heightmap save
+             Saved terrain state after modifications (craters, raised/lowered
+             terrain, building placement, etc.)
+
+  SVER*.DAT  Version/state save
+             Version stamp and additional state data.
+
+The type_D41A0_BYTESTR_0 runtime structure (224,791 bytes) contains:
+  - Random seed and level index
+  - Number of players
+  - Music state
+  - 1000 entity pointers (active entities)
+  - Game settings (graphics, display, resolution, lighting)
+  - 8 player state blocks (type_str_0x2BDE, 2124 bytes each):
+    - Player name (64 chars)
+    - Wizard name
+    - Position/rotation history (33 entries)
+    - Menu state
+    - Notification text (49 chars)
+  - 8 player input records (10 bytes each):
+    - Action, roll, pitch, entity index, next/current entity
+  - 1000 runtime entity records (type_entity_0x6E8E, 168 bytes each)
+  - Embedded level data (Type_Level_2FECE, 26,116 bytes)
+  - Stage/objective state
+  - Fly assistant flag, mouse state
+
+
+Runtime Entity Structure (168 bytes)
+--------------------------------------
+Source: global_types.h (type_entity_0x6E8E)
+
+The runtime entity record is 168 bytes (0xA8) and expands the 20-byte
+on-disk format with full game state. Key fields:
+
+  Offset  Size  Field              Description
+  0x00    4     next               Next entity in linked list
+  0x04    4     life               Current health (int32)
+  0x08    4     maxLife            Maximum health (int32)
+  0x0C    4     flags              State flags
+  0x10    4     entityIndex        Index in entity array
+  0x14    2     randSeed           Random seed reference
+  0x18    2     nextEntity         Next entity index
+  0x1A    2     ownerIndex         Owner/last index
+  0x1C    8     rotation           Orientation (yaw, pitch, roll, fov)
+  0x24    2     subEntity1         Sub-entity link 1
+  0x26    2     subEntity2         Sub-entity link 2
+  0x28    2     whoOwnsMe          Player ownership
+  0x2C    2     zOffset            Vertical offset
+  0x3E    1     bitmapIndex        Sprite/bitmap index
+  0x3F    1     class              Entity class (called "MODEL" in comments!)
+  0x40    1     model              Entity model (called "CLASS" in comments!)
+  0x41    1     subEntityType      Sub-entity type
+  0x42    1     subEntitySubtype   Sub-entity subtype
+  0x45    1     state              Animation/behavior state
+  0x46    1     endingSeqIndex     Ending sequence/bitmap index
+  0x4C    6     position           World position (axis_3d: X, Y, Z)
+  0x52    8     axis4d             Secondary orientation
+  0x82    2     actualSpeed        Current movement speed
+  0x84    2     minSpeed           Minimum speed
+  0x86    2     maxSpeed           Maximum speed
+  0x8C    4     actualMana         Current mana (int32)
+  0x90    4     maxMana            Maximum mana (int32)
+  0x94    2     playerEntityIndex  Owning player's entity index
+  0x9A    6     secondaryPos       Secondary position (axis_3d)
+  0xA0    4     specialSettings    Special configuration flags
+  0xA4    4     pointer            Reference pointer
+
+IMPORTANT: The class field at 0x3F is labeled "MODEL" in the source code
+comments, and the model field at 0x40 is labeled "CLASS". The labels are
+SWAPPED from their actual meaning. This is confirmed in the source.
+
+
+Spells (26 total)
+-------------------
+Source: global_types.h (spell_t enum), Spells.h
+
+MC2 has 26 spells (vs MC1's 24). Spell data confirmed by remc2:
+
+  Index  Enum Name       Display Name     Notes
+  0      fireball        FIREBALL
+  1      possession      POSSESS
+  2      castle          CASTLE
+  3      speed_up        SPEED UP
+  4      metamorph       MORPH
+  5      heal            HEAL
+  6      shield          SHIELD
+  7      lightning       LIGHTNING
+  8      rebound         REBOUND
+  9      meteor          METEOR
+  10     teleport        TELEPORT
+  11     invisible       INVISIBLE
+  12     beyond_sight    BEYOND SIGHT
+  13     steal_mana      STEAL MANA
+  14     duel            DUEL
+  15     tremor          TREMOR
+  16     crater          CRATER
+  17     earthquake      EARTHQUAKE
+  18     volcano         VOLCANO
+  19     summon_army     SUMMON ARMY
+  20     gravity_well    GRAVITY WELL
+  21     whirlwind       WHIRLWIND
+  22     fools_mana      FOOL'S MANA
+  23     magic_mine      MAGIC MINE
+  24     alliance        ALLIANCE          New in MC2
+  25     cave_in         CAVE IN           New in MC2
+
+Each spell has 3 sub-spell levels (type_SPELLS_BEGIN_BUFFER_str, 80 bytes):
+  Byte 0:   byte_0          Unknown flag
+  Byte 1:   isEnabled        Whether spell is available
+  Bytes 2+: 3 x sub-spell records (26 bytes each):
+    int32   subSpellIndex    Sub-spell variant index
+    int32   manaCost         Mana cost to cast
+    int32   maxManaLimit     Maximum mana threshold for this level
+    int32   xpos1            Position parameter 1
+    int32   xpos2            Position parameter 2
+    int16   hintText         Index into text strings for tooltip
+    int16   word_0x18        Unknown
+    int8    life             Damage/healing value
+    uint8   fontType         Font style for display
+
+Entity sub-type spell IDs (from Spells.h comments, used when spell
+entities appear in the world):
+  0x00=Fireball, 0x01=Heal, 0x02=SpeedUp, 0x03=Possession,
+  0x04=Shield, 0x05=BeyondSight, 0x06=Earthquake, 0x07=Meteor,
+  0x08=Volcano, 0x09=Crater, 0x0A=Teleport, 0x0B=RubberBand,
+  0x0C=Invisible, 0x0D=StealMana, 0x0E=Rebound, 0x0F=Lightning,
+  0x10=Castle, 0x11=Skeleton, 0x12=Thunderbolt, 0x13=ManaMagnet,
+  0x14=FireWall, 0x15=ReverseSpeed, 0x16=SmartBomb, 0x17=MiniFire
+
+NOTE: The entity sub-type spell IDs (0x00-0x17) use a DIFFERENT ordering
+than the spell_t enum (0-25). The sub-type list has 24 entries matching
+MC1's spell ordering and includes runtime-only spell effects (Skeleton,
+Thunderbolt, ManaMagnet, FireWall, ReverseSpeed, SmartBomb, MiniFire)
+that don't correspond to castable spells.
+
+
+Comparison: MC1 vs MC2 Level Format
+-------------------------------------
+Feature              MC1                    MC2
+File size            38,812 bytes           26,116 bytes (0x6604)
+Header               48 bytes (12xU32 LE)   23 bytes (mixed types)
+Terrain params       Part of header         46 bytes (12 x uint16+pad)
+Reserved block       1,042 bytes            1,022 bytes
+Entity record size   18 bytes               20 bytes
+Entity byte order    Little-endian          BIG-ENDIAN (on disk)
+Entity fields        9 (uint16 LE)          10 (uint16 BE)
+Entity slots         2,095                  1,200
+Wizard config        12-byte footer         880 bytes (8 x 110 bytes)
+Stage data           None                   144 bytes (checkpoints+vars)
+Total levels         70                     165 standard + 18 extended
+Campaign levels      70                     25 + hidden realms
+Spells               24 (Class 12)          26 (Class 15)
+Creatures            17 models              29 models (0-28)
+Mission scripting    None                   10 objective types
+Environment types    1 (outdoor)            3 (Day/Night/Cave)
+Secret exits         None                   5 campaign levels
+Terrain params       11 (GEN_MAP)           12 (adds LRiver)
+Sound format         Unknown                WAV in SNDS banks (96 slots)
+Music format         Unknown                XMI (Extended MIDI)
+Compression          RNC method 1           RNC method 1 (same)
+Container            BULLFROG + LEVELS.TAB  BULLFROG + LEVELS.TAB (same)
+Save file format     Text (Rosetta Stone!)  Binary (224,791 bytes)
+Runtime entity       Unknown                168 bytes (type_entity_0x6E8E)
+Terrain maps         Unknown                5 x 256x256 uint8/int16 arrays
+
+
+Known Entity Type Cross-References (MC1 → MC2)
+-------------------------------------------------
+These mappings are confirmed by structural analysis and gameplay:
+
+  MC1 Class 2 → MC2 Class 2:   Scenery
+    Model 0: Tree, Model 6: Mushroom (new)
+  MC1 Class 3 → MC2 Class 3:   Player spawn (same models 4-11)
+  MC1 Class 5 → MC2 Class 5:   Creature (expanded from 17 to 26+ types)
+    Same: Dragon(0), Bee(2), Skeleton(9), Archer(4)
+    New: Spider(20), Zombie(26), Sentinel(18), Firefly(19)
+  MC1 Class 10 → MC2 Class 10: Effect
+    Same: Crater(11), Path(29), Teleport(34), Mana ball(39), Wizard(45)
+    New: Group marker(80)
+  MC1 Class 11 → MC2 Class 11: Switch (DisId/SwiId linking confirmed)
+  MC1 Class 12 → MC2 Class 15: Spell pickup (renumbered, 26 spells)
+  New: MC2 Class 14: Objects (gates, exit portal, XP scrolls) [per TCRF]
+
+
+Verification
+-------------
+Three independent sources cross-referenced:
+  1. Binary analysis of all 184 decompressed retail level files
+  2. TCRF (The Cutting Room Floor) reverse engineering notes
+  3. remc2 decompiled source code (from original x86 assembly)
+
+The complete structure is verified for standard levels:
+  Header (23) + Terrain Params (46) + Padding (1022) + Entities (1200 x 20)
+  + Separator (1) + Wizard Config (880) + Stages (56) + StageVars (88)
+  = 23 + 46 + 1022 + 24000 + 1 + 880 + 56 + 88 = 26,116 bytes (0x6604)
+  This matches the remc2 Type_Level_2FECE struct size exactly (0x6604).
+
+Entity parsing produces sensible Class/Model/Xpos/Ypos values across
+all 165 standard levels. Class numbers match MC1's system. The big-endian
+byte order is confirmed by the 20-byte spacing of identical Class+Model
+patterns and by the sensible coordinate values (0-255 range).
+
+Mission script format verified against gameplay for campaign levels 1-7:
+  - Objective counts match displayed in-game objectives
+  - Text strings align sequentially (48 + cumulative counts)
+  - Entity slot cross-references resolve to correct entity types
+  - Opcode behavior matches in-game objective types
+  - All 10 opcode types confirmed by remc2 source comments
+
+
+Resolved (via remc2 source)
+-----------------------------
+- Terrain params: all 12 now named (Seed, Offset, Raise, Gnarl, River,
+  LRiver, Source, SnLin, SnFlt, BhLin, BhFlt, RkSte)
+- Wizard config: full 110-byte struct decoded (Aggression, Reflexes,
+  Perception, StartingSpells[26], BlockedSpells[26], Life)
+- Entity count: confirmed 1,200 slots (was estimated at 1,199)
+- Entity field 0x0C: "StageTag" (mission stage link, not just SwiId)
+- Entity fields 0x0E-0x12: named Par1/Par2/Par3
+- Mission opcodes: all 10 types confirmed (source comments + gameplay)
+- Sound format: WAV samples in SNDS banks, 96 slots per bank, 69 named
+- Music format: XMI (Extended MIDI) with CC 116/117 loop events
+- Sprite format: RLE with transparency via DAT/TAB index pairs
+- Texture format: RNC-compressed in TMAPS DAT/TAB, 3 environment sets
+- Terrain blocks: BLOCK16/32 in Day/Night/Cave/Fire variants
+- Color tables: TABLESD/N/C lookup tables for shading
+- Palettes: 256-entry RGB, per-environment
+- Fonts: DAT/TAB system (same as sprites), 3 sizes
+- Building models: 77 parameter entries (4 bytes each), fractal tree geometry
+- Sky: SKYD/SKYN separate day/night textures
+- Save format: SLEV (224,791-byte game state), SMAP (terrain), SVER (version)
+- Runtime entity: 168 bytes with full field layout
+- Terrain generation: 5 x 256x256 arrays (type, height, shade, angle, entity)
+- Spell data: 26 spells, 80-byte records with 3 sub-levels each
+- Header field 0x02: Level ID (not terrain seed as originally identified)
+- Header field 0x06: MapType enum (Day=0, Night=1, Cave=2)
+- Header bytes 0x0B-0x12: Player slot array (8 bytes, one per wizard)
+
+Remaining Unknowns / Future Work
+-----------------------------------
+- Header byte 0x04 (GfxType): "type of level graphics" values 0/2/4
+- Header byte 0x05: unknown parameter (0-250 range)
+- Header int16 at 0x07: unknown (usually 10, sometimes 100)
+- Header int16 at 0x09: unknown
+- Secret exit flag location: needs re-verification against new header layout
+  (was byte 0x0C in old layout, but player array now occupies 0x0B-0x12)
+- Hidden realm destination mapping mechanism
+- Class 0 (Conditional Spawn): gameplay confirmation still needed
+- MC2 effect models 50-85: most unidentified (80 = group marker confirmed)
+- Extended levels (38,870+ bytes): different format, possibly multiplayer
+- Wizard config byte_0x360FBx[26]: unknown spell-related array
+- Entity field Word10 (offset 0x0A): purpose unclear
+- Sprite RLE encoding: exact bit-level format not documented
+- Texture decompression: sub_70C60 algorithm not documented
+- Terrain generation algorithm: full procedural generation pipeline
+  (sub functions for smoothing, river carving, truncation identified
+  but algorithm details require further source analysis)
+- FMV animation format (intro/cutscene video): frame decompression
+  algorithm with palette and sound sync
+- Networking protocol (NETBIOS-style over TCP/IP)
+
+
+Sources
+--------
+- remc2 decompiled source: github.com/thobbsinteractive/magic-carpet-2-hd
+  (development branch, remc2/ directory). Originally reverse-engineered from
+  x86 assembly to C by Tomas Vesely (turican0/remc2). Preserves original
+  memory addresses as variable name suffixes for disassembly traceability.
+  Key files: BasicTerrain.h, LevelStructs.h, global_types.h, Spells.h,
+  Sound.h, WavIndexes.h, Terrain.h, GameBitmap.h, TextureMaps.h,
+  XmiInfo.h, LangTextIndexes.h, GameBitmapIndexes.h, MapType.h
+- TCRF (The Cutting Room Floor) reverse engineering notes
+- Binary analysis of all 184 decompressed level files
+
+Tools Used
+-----------
+- dernc: RNC decompression (MC1's tool works for MC2 files)
+- Python struct module: binary parsing
+- xxd: hex dump analysis
+- Magic Carpet 2 (via Boxer): gameplay verification of format findings
